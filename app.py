@@ -8,8 +8,8 @@ st.title("🗺️ Sitemap Checker")
 st.caption("Nhap URL sitemap hoac URL trang web thuong, tool se tu tim va thong ke so URL.")
 
 url = st.text_input("URL", placeholder="https://example.com hoac https://example.com/sitemap.xml")
-timeout = st.slider("Timeout (giay)", min_value=5, max_value=60, value=15)
 no_discover = st.checkbox("URL truyen vao la sitemap that (khong can tu tim)", value=False)
+timeout = None
 
 if st.button("Quet sitemap", type="primary") and url:
     with st.spinner("Dang quet..."):
