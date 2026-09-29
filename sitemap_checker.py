@@ -207,10 +207,62 @@ def crawl(session: requests.Session, url: str, timeout: int, results: list, visi
         for child_url in children:
             crawl(session, child_url, timeout, results, visited, depth + 1, delay=delay, referer=url)
     elif tag == "urlset":
-        urls = root.findall(f"{ns}url/{ns}loc")
-        results.append({"sitemap": short_name(url), "url": url, "count": len(urls), "error": None})
+        urls = [loc.text.strip() for loc in root.findall(f"{ns}url/{ns}loc") if loc.text]
+        results.append({"sitemap": short_name(url), "url": url, "count": len(urls), "error": None, "urls": urls})
     else:
         results.append({"sitemap": short_name(url), "url": url, "count": 0, "error": f"Unknown root tag: {tag}"})
+
+
+def write_xlsx(results: list, target):
+    """Ghi Excel 2 sheet: tổng hợp theo sitemap và toàn bộ URL chi tiết.
+    `target` là đường dẫn file hoặc file-like (vd BytesIO)."""
+    import pandas as pd
+
+    summary = pd.DataFrame(
+        [{"sitemap": r["sitemap"], "url": r["url"], "count": r["count"], "error": r["error"] or ""} for r in results]
+    )
+    details = pd.DataFrame(
+        [{"sitemap": r["sitemap"], "loc": u} for r in results for u in r.get("urls", [])],
+        columns=["sitemap", "loc"],
+    )
+    with pd.ExcelWriter(target, engine="openpyxl") as writer:
+        summary.to_excel(writer, sheet_name="sitemap_report", index=False)
+        details.to_excel(writer, sheet_name="chi_tiet_url", index=False)
+        for ws in writer.book.worksheets:
+            _style_sheet(ws)
+
+
+def _style_sheet(ws):
+    """Header màu + căn giữa, đóng băng hàng đầu, bộ lọc, giãn cột theo nội dung."""
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    thin = Side(style="thin", color="D9D9D9")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    ws.row_dimensions[1].height = 24
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = border
+
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.border = border
+            cell.alignment = Alignment(vertical="center")
+            if isinstance(cell.value, int):
+                cell.number_format = "#,##0"
+                cell.alignment = Alignment(horizontal="right", vertical="center")
+
+    for idx, col in enumerate(ws.columns, start=1):
+        longest = max((len(str(c.value)) for c in col if c.value is not None), default=10)
+        ws.column_dimensions[get_column_letter(idx)].width = min(max(longest + 4, 14), 90)
+
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
 
 
 def print_report(results: list):
@@ -243,6 +295,7 @@ def main():
     )
     parser.add_argument("--timeout", type=int, default=15, help="Timeout request (giay)")
     parser.add_argument("--csv", help="Xuat ket qua ra file CSV")
+    parser.add_argument("--xlsx", help="Xuat Excel 2 sheet: tong hop + tat ca URL chi tiet")
     parser.add_argument(
         "--delay",
         type=float,
@@ -310,6 +363,10 @@ def main():
             for r in results:
                 writer.writerow([r["sitemap"], r["url"], r["count"], r["error"] or ""])
         print(f"\nDa xuat CSV: {args.csv}")
+
+    if args.xlsx:
+        write_xlsx(results, args.xlsx)
+        print(f"\nDa xuat Excel: {args.xlsx}")
 
 
 if __name__ == "__main__":

@@ -1,3 +1,5 @@
+from io import BytesIO
+
 import pandas as pd
 import streamlit as st
 
@@ -6,6 +8,7 @@ from sitemap_checker import (
     crawl,
     discover_sitemap_urls,
     make_session,
+    write_xlsx,
     sitemaps_from_common_paths,
 )
 
@@ -53,7 +56,7 @@ if st.button("Quet sitemap", type="primary") and url:
             st.error("Khong tim thay sitemap nao.")
             st.stop()
 
-        df = pd.DataFrame(results)
+        df = pd.DataFrame(results).drop(columns="urls", errors="ignore")
         total = df["count"].sum()
 
         st.subheader("Ket qua")
@@ -72,5 +75,11 @@ if st.button("Quet sitemap", type="primary") and url:
             pct = att_count / total * 100
             st.warning(f"attachment-sitemap chiem {att_count}/{int(total)} URL (~{pct:.0f}%).")
 
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button("Tai CSV", csv, "sitemap_report.csv", "text/csv")
+        xlsx = BytesIO()
+        write_xlsx(results, xlsx)
+        st.download_button(
+            "Tai Excel (bao cao + chi tiet URL)",
+            xlsx.getvalue(),
+            "sitemap_report.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
