@@ -52,6 +52,51 @@ def make_session() -> requests.Session:
     return session
 
 
+class BrowserResponse:
+    """Response tối thiểu, tương thích với phần requests.Response mà tool dùng."""
+
+    def __init__(self, status: int, content: bytes):
+        self.status_code = status
+        self.content = content
+        self.ok = status < 400
+
+    @property
+    def text(self) -> str:
+        return self.content.decode("utf-8", "replace")
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise requests.HTTPError(f"{self.status_code} Error")
+
+
+class BrowserSession:
+    """Lấy nội dung bằng Chrome thật (có giao diện) qua Playwright, dùng cho
+    site bật Cloudflare Managed Challenge mà requests không qua được.
+    Cần: pip install playwright và Google Chrome đã cài trên máy."""
+
+    def __init__(self, headless: bool = False):
+        from playwright.sync_api import sync_playwright
+
+        self._pw = sync_playwright().start()
+        self._browser = self._pw.chromium.launch(channel="chrome", headless=headless)
+        self._page = self._browser.new_context().new_page()
+
+    def get(self, url: str, headers: dict = None, timeout: int = 15) -> BrowserResponse:
+        # Nếu gặp trang challenge của Cloudflare thì chờ nó tự giải rồi tải lại.
+        resp = self._page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
+        for _ in range(timeout):
+            if resp is not None and resp.status < 400:
+                break
+            self._page.wait_for_timeout(1000)
+            resp = self._page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
+        body = resp.body() if resp else b""
+        return BrowserResponse(resp.status if resp else 0, body)
+
+    def close(self):
+        self._browser.close()
+        self._pw.stop()
+
+
 def fetch_xml(session: requests.Session, url: str, timeout: int = 15, referer: str = None) -> ET.Element:
     headers = {"Referer": referer} if referer else {}
     resp = session.get(url, headers=headers, timeout=timeout)
@@ -197,13 +242,18 @@ def main():
         "de tranh bi chan vi goi qua nhanh (mac dinh 0.3s)",
     )
     parser.add_argument(
+        "--browser",
+        action="store_true",
+        help="Dung Chrome that (Playwright) de lay sitemap, cho site bi Cloudflare challenge chan",
+    )
+    parser.add_argument(
         "--no-discover",
         action="store_true",
         help="Tat tinh nang tu tim sitemap, coi url truyen vao la sitemap that",
     )
     args = parser.parse_args()
 
-    session = make_session()
+    session = BrowserSession() if args.browser else make_session()
 
     start_urls = [args.url]
     if not args.no_discover and not args.url.rstrip("/").lower().endswith(".xml"):
