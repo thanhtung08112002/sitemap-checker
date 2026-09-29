@@ -38,6 +38,15 @@ def make_session() -> requests.Session:
     """Session dùng chung để giữ cookie giữa các request (nhiều WAF set cookie
     thử thách ở request đầu rồi mới cho qua ở các request sau) và tự retry
     khi gặp lỗi mạng/rate-limit tạm thời."""
+    try:
+        # curl_cffi giả TLS/HTTP2 fingerprint của Chrome nên qua được Cloudflare
+        # kiểu kiểm tra fingerprint mà requests bị chặn (403). Header do curl_cffi tự đặt.
+        from curl_cffi import requests as cffi_requests
+
+        return cffi_requests.Session(impersonate="chrome")
+    except ImportError:
+        pass
+
     session = requests.Session()
     session.headers.update(HEADERS)
     retry = Retry(
